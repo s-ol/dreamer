@@ -11,11 +11,11 @@ import caffe
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument(
-        "-a", "--animate", default=0,
+        "-a", "--animate", default=0, type=int,
         help="animate a zoom for this many frames (default 0)"
 )
 parser.add_argument(
-        "-s", "--scale", default=0.05,
+        "-s", "--scale", default=0.05, type=float,
         help="zoom speed (use with --animate)"
 )
 parser.add_argument(
