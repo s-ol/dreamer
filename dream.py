@@ -6,7 +6,7 @@ import scipy.ndimage as nd
 import PIL.Image
 from google.protobuf import text_format
 
-from os import path
+from os import path, mkdir
 import caffe
 import argparse
 parser = argparse.ArgumentParser()
@@ -138,6 +138,7 @@ for img in args.image:
     if args.animate > 1:
         h, w = frame.shape[:2]
         s = args.scale # scale coefficient
+        mkdir("%s-%s"%(img, args.layer.replace("/","-")))
         for i in xrange(args.animate):
             frame = deepdream(net, frame, end=args.layer)
             res = PIL.Image.fromarray(np.uint8(frame))
