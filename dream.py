@@ -138,7 +138,8 @@ for img in args.image:
     if args.animate > 1:
         h, w = frame.shape[:2]
         s = args.scale # scale coefficient
-        mkdir("%s-%s"%(img, args.layer.replace("/","-")))
+        try: mkdir("%s-%s"%(img, args.layer.replace("/","-")))
+        except OSError: pass
         for i in xrange(args.animate):
             frame = deepdream(net, frame, end=args.layer)
             res = PIL.Image.fromarray(np.uint8(frame))
