@@ -9,6 +9,7 @@ from google.protobuf import text_format
 from os import path, mkdir
 import caffe
 import argparse
+
 parser = argparse.ArgumentParser()
 parser.add_argument(
         "-a", "--animate", default=0, type=int,
@@ -16,7 +17,7 @@ parser.add_argument(
 )
 parser.add_argument(
         "-s", "--scale", default=0.05, type=float,
-        help="zoom speed (use with --animate)"
+        help="zoom speed (use with --animate, default 0.05)"
 )
 parser.add_argument(
         "-l", "--layer", default="inception_4d/pool",
@@ -29,6 +30,10 @@ parser.add_argument(
 parser.add_argument(
         "--force-backward", action="store_true",
         help="patch model file for gradient support (force_backward=True)"
+)
+parser.add_argument(
+        "-g", "--guide",
+        help="use another image as a guide"
 )
 parser.add_argument(
         "--show", action="store_true",
@@ -72,7 +77,11 @@ def preprocess(net, img):
 def deprocess(net, img):
     return np.dstack((img + net.transformer.mean['data'])[::-1])
 
-def make_step(net, step_size=1.5, end='inception_4c/output', jitter=32, clip=True):
+def objective_L2(dst):
+    dst.diff[:] = dst.data
+
+def make_step(net, step_size=1.5, end='inception_4c/output',
+              jitter=32, clip=True, objective=objective_L2):
     '''Basic gradient ascent step.'''
 
     src = net.blobs['data'] # input image is stored in Net's 'data' blob
@@ -82,7 +91,7 @@ def make_step(net, step_size=1.5, end='inception_4c/output', jitter=32, clip=Tru
     src.data[0] = np.roll(np.roll(src.data[0], ox, -1), oy, -2) # apply jitter shift
 
     net.forward(end=end)
-    dst.diff[:] = dst.data  # specify the optimization objective
+    objective(dst)  # specify the optimization objective
     net.backward(start=end)
     g = src.diff[0]
     # apply normalized ascent step to the input image
@@ -126,10 +135,33 @@ def deepdream(net, base_img, iter_n=10, octave_n=4, octave_scale=1.4, end='incep
     # returning the resulting image
     return deprocess(net, src.data[0])
 
+# conv2/3x3_reduce
 # 4a/1x1: square, edge   or 4a/3x3 ??
 # 4a/1x1: circles ??
 # 4d/pool: dogs, birds, weasels
 # 5b/5x5_reduce: insects
+if args.guide:
+    guide = np.float32(PIL.Image.open(args.guide))
+    h, w = guide.shape[:2]
+    src, dst = net.blobs['data'], net.blobs[args.layer]
+    src.reshape(1,3,h,w)
+    src.data[0] = preprocess(net, guide)
+    net.forward(end=args.layer)
+    guide_features = dst.data[0].copy()
+
+    def ret(dst):
+        x = dst.data[0].copy()
+        y = guide_features
+        ch = x.shape[0]
+        x = x.reshape(ch,-1)
+        y = y.reshape(ch,-1)
+        A = x.T.dot(y) # compute the matrix of dot-products with guide features
+        dst.diff[0].reshape(ch,-1)[:] = y[:,A.argmax(1)] # select ones that match best
+
+    args.guide = ret
+else:
+    args.guide = objective_L2
+
 for img in args.image:
     frame = np.float32(PIL.Image.open(img))
 
@@ -141,13 +173,13 @@ for img in args.image:
         try: mkdir("%s-%s"%(img, args.layer.replace("/","-")))
         except OSError: pass
         for i in xrange(args.animate):
-            frame = deepdream(net, frame, end=args.layer)
+            frame = deepdream(net, frame, end=args.layer, objective=args.guide)
             res = PIL.Image.fromarray(np.uint8(frame))
             res.save("%s-%s/%04d.jpg"%(img, args.layer.replace("/","-"), i))
             if args.show: res.show()
             frame = nd.affine_transform(frame, [1-s,1-s,1], [h*s/2,w*s/2,0], order=1)
     else:
-        frame = deepdream(net, frame, end=args.layer)
+        frame = deepdream(net, frame, end=args.layer, objective=args.guide)
         res = PIL.Image.fromarray(np.uint8(frame))
         res.save("%s-%s.jpg"%(img, args.layer.replace("/","-")))
         if args.show:
